@@ -42,10 +42,9 @@ def parse_definition(definition):
 # Function to parse the TSV file
 def parse_tsv(file_path):
     result = {}
-    
+    adj_list = {}
     with open(file_path, 'r', newline='', encoding='utf-8') as tsv_file:
         reader = csv.reader(tsv_file, delimiter='\t')
-        count = 70000000000
         for row in reader:
             word = row[0]
             definitions = row[1].split(' / ')
@@ -62,11 +61,36 @@ def parse_tsv(file_path):
                 if word not in result:
                     result[word] = []
                 result[word].append(entry)
-            count -= 1
-            if count == 0:
-                break
-    
-    return result
+                node = root_word
+                if node is None:
+                    node = word
+                node = node + ":" + pos
+                neighbors = set()
+                if alt_spellings is not None:
+                    for alt_spelling in alt_spellings:
+                        neighbors.add(alt_spelling + ":" + pos)
+                adj_list[node] = {
+                    'neighbors': neighbors,
+                    'def': def_text,
+                    'vis': False
+                }
+
+    # Make the graph undirected and remove dead end neighbors
+    for node, data in adj_list.items():
+        data['neighbors'] = {neighbor for neighbor in data['neighbors'] if neighbor in adj_list}
+        for neighbor in data['neighbors']:
+            adj_list[neighbor]['neighbors'].add(node)
+
+    return result, adj_list
+
+def dfs(adj_list, node, current_group):
+    if adj_list[node]['vis']:
+        return
+    adj_list[node]['vis'] = True
+    current_group.append({'word': node, 'def': adj_list[node]['def']})
+    neighbors = adj_list[node]['neighbors']
+    for neighbor in neighbors:
+        dfs(adj_list, neighbor, current_group)
 
 # Main entry point
 if __name__ == "__main__":
@@ -74,7 +98,15 @@ if __name__ == "__main__":
     parser.add_argument("file", help="Path to the input TSV file.")
     args = parser.parse_args()
 
-    parsed_data = parse_tsv(args.file)
+    parsed_data, adj_list = parse_tsv(args.file)
+    all_groups = []
+    for node in adj_list:
+        if not adj_list[node]['vis']:
+            current_group = []
+            dfs(adj_list, node, current_group)
+            all_groups.append(current_group)
 
-    for word, definitions in parsed_data.items():
-        print(word, definitions)
+    for group in all_groups:
+        words = [x['word'] for x in group]
+        sorted_words = sorted(words)
+        print(",".join(sorted_words))

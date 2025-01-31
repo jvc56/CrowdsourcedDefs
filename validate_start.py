@@ -21,10 +21,10 @@ def validate_lines(filename):
             count_open = line.count('[')
             count_close = line.count(']')
             count_slash = line.count(' / ')
-            
+
             # Check for invalid parts of speech after '['
             invalid_pos_found = False
-            for match in re.finditer(r'\[([a-z]+)', line):
+            for match in re.finditer(r'\[([a-z\-]+)', line):
                 part_of_speech = match.group(1)
                 if part_of_speech not in valid_pos:
                     print("invalid pos: " + part_of_speech)

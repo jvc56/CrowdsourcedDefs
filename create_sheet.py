@@ -2,135 +2,168 @@ import csv
 import re
 import argparse
 
+VALID_POS = {'n', 'v', 'adj', 'adv', 'interj', 'pron', 'prep', 'conj'}
 WHITESPACE_PLACEHOLDER = '*'
-ADJ_LIST_KEY_DELIMITER = '-'
+KEY_DELIMITER = '###'
 
-# Function to parse the definition and extract the components
-def parse_definition(definition, valid_words):
+def parse_definition(defi, valid_words, word):
+    if defi.count('[') != 1:
+        raise ValueError("Definition does not have exactly one '[' character: " + defi)
+    if defi.count(']') != 1:
+        raise ValueError("Definition does not have exactly one ']' character: " + defi)
+    if not defi.endswith(']'):
+        raise ValueError("Definition does not end with ']' character: " + defi)
+
+    for match in re.finditer(r'\[(^[^\]\s]+)', defi):
+        part_of_speech = match.group(1)
+        if part_of_speech not in valid_pos:
+            raise ValueError("Definition contains invalid part of speech: " + defi)
+
     root_word = None
     alt_spellings = set()
     part_of_speech = None
     conjugations = None
-    
-    definition = definition.strip()
 
-    # Extract root word if it exists
-    root_word_match = re.search(r'^([A-Z]+),', definition)
+    defi = defi.strip()
+
+    word_is_root_word = False
+    root_word_match = re.search(r'^([A-Z]+),', defi)
     if root_word_match:
         root_word = root_word_match.group(1)
-        definition = definition[len(root_word) + 1:].strip()
+        if word == root_word:
+            raise ValueError(f"Definition lists word as its own root word: " + defi)
+        defi = defi[len(root_word) + 1:].strip()
+    else:
+        root_word = word
+        word_is_root_word = True
 
-    # Extract part of speech and conjugations if they exist
-    pos_and_conj_match = re.search(r'\[([^]]+)\]', definition)
+    pos_and_conj_match = re.search(r'\[([^]]+)\]', defi)
     if pos_and_conj_match:
         pos_and_conj = pos_and_conj_match.group(1)
         split_by_pos = pos_and_conj.split(" ", 1)
         part_of_speech = split_by_pos[0]
         if len(split_by_pos) > 1:
+            if not word_is_root_word:
+                raise ValueError("Definition lists conjugations for nonroot word: " + defi)
             conjugations = split_by_pos[1].split(",")
             conjugations = [x.strip() for x in conjugations]
-        definition = definition[:definition.find('[')].strip()
+            # FIXME: fix the 'or' cases
+            # for conj in conjugations:
+            #     if not conj.isupper():
+            #         raise ValueError(f"Definition contains a conjugation that is not uppercase: " + defi)
+        defi = defi[:defi.find('[')].strip()
     else:
-        raise ValueError(f"definition does not contain part of speech: {definition}")
+        raise ValueError("Definition does not contain part of speech: " + defi)
 
-    # Extract alternate spellings if they exist
-    alt_spellings_match = re.search(r', also ([^[]+)', definition)
+    alt_spellings_match = re.search(r', also ([^[]+)', defi)
     if alt_spellings_match:
         alt_spellings_str = alt_spellings_match.group(1)
         alt_spellings = {x.strip() for x in alt_spellings_str.split(",")}
-        definition = definition[:definition.find(', also ')].strip()
+        for alt_spelling in alt_spellings:
+            if not alt_spelling.isupper():
+                raise ValueError(f"Definition contains an alt spelling that is not uppercase: " + defi)
+            if alt_spelling not in valid_words:
+                raise ValueError(f"Definition contains an alt spelling that is not a valid word: " + defi)
+        defi = defi[:defi.find(', also ')].strip()
 
-    def_words = definition.split()
+    def_words = defi.split()
     misspelled = []
     for word in def_words:
         if len(word) > 1 and len(word) <= 15 and word.isalpha() and word.islower() and word.upper() not in valid_words:
             misspelled.append(word.upper())
 
-    return root_word, definition, alt_spellings, part_of_speech, conjugations, misspelled
+    return root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled
 
-def get_valid_words(file_path):
-    valid_words = set()
-    with open(file_path, 'r') as file:
-        for line in file:
-            word = line.split('\t', 1)[0].strip()
-            if not word.isupper():  # Check if the word is not in uppercase
-                raise ValueError(f"'{word}' is not in all uppercase")
-            valid_words.add(word)
-    return valid_words
+def create_key(word, pos):
+    return word + KEY_DELIMITER + pos
 
-def get_adj_list_key(word, pos):
-    return word + ADJ_LIST_KEY_DELIMITER + pos
-
-def decompose_adj_list_key(key):
-    word, pos = key.split(ADJ_LIST_KEY_DELIMITER)
-    return word, pos
+def decompose_key(key):
+    return key.split(KEY_DELIMITER)
 
 # Function to parse the TSV file
 def parse_tsv(file_path):
-    valid_words = get_valid_words(file_path)
+    valid_words = set()
+
+    word_def_lines = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            word_and_all_defis = line.split('\t')
+            if len(word_and_all_defis) != 2:
+                raise ValueError("Line does not have exactly one tab: " + line)
+            word = word_and_all_defis[0].strip()
+            all_defis = word_and_all_defis[1].strip()
+            if word == '':
+                raise ValueError("Word is empty: " + line)
+            if all_defis == '':
+                raise ValueError("Definition is empty: " + line)
+            if not word.isupper():
+                raise ValueError("Word is not uppercase: " + line)
+
+            valid_words.add(word)
+            word_def_lines.append((word, all_defis))
+
+    parsed_definitions = []
+
+    for word, all_defis in word_def_lines:
+        all_defis_split = all_defis.split(' / ')
+        for defi in all_defis_split:
+            root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled = parse_definition(defi, valid_words, word)
+            parsed_definitions.append([root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
+
     parsed_tsv = {}
-    adj_list = {}
-    with open(file_path, 'r', newline='', encoding='utf-8') as tsv_file:
-        reader = csv.reader(tsv_file, delimiter='\t')
-        for row in reader:
-            word = row[0]
-            definitions = row[1].split(' / ')
-            for definition in definitions:
-                root_word, def_text, alt_spellings, pos, conj, mis = parse_definition(definition, valid_words)
-                if not root_word:
-                    root_word = word
-                elif word == root_word:
-                    raise ValueError(f"Word lists itself as a root: '{word}'")
+    root_def_set = set()
+    for root_word, def_text, alt_spellings, pos, conj, mis, word in parsed_definitions:
+        if conj and len(conj) == 3:
+            conj_set = set(conj)
+            conj_ed = word + 'ED'
+            conj_ing = word + 'ING'
+            conj_s = word + 'S'
+            conj_es = word + 'ES'
+            uses_es = False
+            if conj_ed in conj_set:
+                conj_set.remove(conj_ed)
+            if conj_ing in conj_set:
+                conj_set.remove(conj_ing)
+            if conj_s in conj_set and conj_es not in conj_set:
+                conj_set.remove(conj_s)
+            if conj_es in conj_set and conj_s not in conj_set:
+                conj_set.remove(conj_es)
+                uses_es = True
 
-                if conj and len(conj) == 3:
-                    conj_set = set(conj)
-                    conj_ed = word + 'ED'
-                    conj_ing = word + 'ING'
-                    conj_s = word + 'S'
-                    conj_es = word + 'ES'
-                    uses_es = False
-                    if conj_ed in conj_set:
-                        conj_set.remove(conj_ed)
-                    if conj_ing in conj_set:
-                        conj_set.remove(conj_ing)
-                    if conj_s in conj_set and conj_es not in conj_set:
-                        conj_set.remove(conj_s)
-                    if conj_es in conj_set and conj_s not in conj_set:
-                        conj_set.remove(conj_es)
-                        uses_es = True
-
-                    if len(conj_set) == 0:
-                        if uses_es:
-                            conj = ['-ED', '-ING', '-ES']
-                        else:
-                            conj = ['-ED', '-ING', '-S']
-
-                entry = {
-                    'root': root_word,
-                    'def': def_text,
-                    'alts': alt_spellings,
-                    'pos': pos,
-                    'conjs': conj,
-                    'mis': mis,
-                }
-                if word not in parsed_tsv:
-                    parsed_tsv[word] = []
-                parsed_tsv[word].append(entry)
-                neighbors = set()
-                for alt in alt_spellings:
-                    neighbors.add(get_adj_list_key(alt, pos))
-                node_key = get_adj_list_key(root_word, pos)
-                if node_key in adj_list:
-                    node_val = adj_list[node_key]
-                    node_val['defs'].append(def_text)
-                    node_val['neighbors'].update(neighbors)
+            if len(conj_set) == 0:
+                if uses_es:
+                    conj = ['-ED', '-ING', '-ES']
                 else:
-                    adj_list[node_key] = {
-                        'root': root_word,
-                        'defs': [def_text],
-                        'neighbors': neighbors,
-                        'vis': False
-                    }
+                    conj = ['-ED', '-ING', '-S']
+
+        entry = {
+            'root': root_word,
+            'def': def_text,
+            'alts': alt_spellings,
+            'pos': pos,
+            'conjs': conj,
+            'mis': mis,
+        }
+        if word not in parsed_tsv:
+            parsed_tsv[word] = []
+        parsed_tsv[word].append(entry)
+        if root_word == word:
+            sanitized_def = re.sub(r'\s+', WHITESPACE_PLACEHOLDER, def_text)
+            root_def_key = create_key(root_word, sanitized_def)
+            print("Adding key: " + root_def_key)
+            root_def_set.add(root_def_key)
+
+    # Set all conjugation definitions to the root word definition
+    for word in parsed_tsv:
+        for entry in parsed_tsv[word]:
+            sanitized_def = re.sub(r'\s+', WHITESPACE_PLACEHOLDER, entry['def'])
+            root_def_key = create_key(entry['root'], sanitized_def)
+            if root_def_key not in root_def_set:
+                print("Cound not find key of: " + root_def_key)
+                print(f"Mismatched def for: '{entry['root']}' ({entry['pos']})")
+
+    exit(0)
+
 
     # Make the graph undirected and remove dead end neighbors
     for node_key, node_val in adj_list.items():
@@ -190,9 +223,9 @@ if __name__ == "__main__":
         plurality_def = max(def_counts, key=def_counts.get)
         plurality_def = plurality_def.replace(WHITESPACE_PLACEHOLDER, ' ')
         sorted_alt_spellings = sorted(current_group['words'])
-        _, pos = decompose_adj_list_key(node_key)
+        _, pos = decompose_key(node_key)
         for salt in sorted_alt_spellings:
-            completed_groups[get_adj_list_key(salt, pos)] = {
+            completed_groups[create_key(salt, pos)] = {
                 'pdef': plurality_def,
                 'alts': sorted_alt_spellings,
             }
@@ -200,7 +233,7 @@ if __name__ == "__main__":
     for word in parsed_tsv:
         for entry in parsed_tsv[word]:
             root = entry['root']
-            adj_list_key = get_adj_list_key(root, entry['pos'])
+            adj_list_key = create_key(root, entry['pos'])
             if adj_list_key not in completed_groups:
                 raise ValueError(f"Key '{adj_list_key}' not found in alt spelling groups")
             completed_alts = completed_groups[adj_list_key]['alts']

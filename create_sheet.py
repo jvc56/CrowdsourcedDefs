@@ -19,6 +19,7 @@ def parse_definition(defi, valid_words, word):
         if part_of_speech not in valid_pos:
             raise ValueError("Definition contains invalid part of speech: " + defi)
 
+    iroot_word = None
     root_word = None
     alt_spellings = set()
     part_of_speech = None
@@ -36,6 +37,14 @@ def parse_definition(defi, valid_words, word):
     else:
         root_word = word
         word_is_root_word = True
+
+    iroot_word_match = re.search(r'^([A-Z]+),', defi)
+    if iroot_word_match:
+        iroot_word = iroot_word_match.group(1)
+        if word == root_word:
+            raise ValueError(f"Definition lists word as its own intermediate root word: " + defi)
+        defi = defi[len(iroot_word) + 1:].strip()
+        iroot_word, root_word = root_word, iroot_word
 
     pos_and_conj_match = re.search(r'\[([^]]+)\]', defi)
     if pos_and_conj_match:
@@ -72,7 +81,7 @@ def parse_definition(defi, valid_words, word):
         if len(word) > 1 and len(word) <= 15 and word.isalpha() and word.islower() and word.upper() not in valid_words:
             misspelled.append(word.upper())
 
-    return root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled
+    return  iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled
 
 def create_key(word, pos):
     return word + KEY_DELIMITER + pos
@@ -107,12 +116,12 @@ def parse_tsv(file_path):
     for word, all_defis in word_def_lines:
         all_defis_split = all_defis.split(' / ')
         for defi in all_defis_split:
-            root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled = parse_definition(defi, valid_words, word)
-            parsed_definitions.append([root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
+            iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled = parse_definition(defi, valid_words, word)
+            parsed_definitions.append([iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
 
     parsed_tsv = {}
     root_def_set = set()
-    for root_word, def_text, alt_spellings, pos, conj, mis, word in parsed_definitions:
+    for iroot_word, root_word, def_text, alt_spellings, pos, conj, mis, word in parsed_definitions:
         if conj and len(conj) == 3:
             conj_set = set(conj)
             conj_ed = word + 'ED'
@@ -137,6 +146,7 @@ def parse_tsv(file_path):
                     conj = ['-ED', '-ING', '-S']
 
         entry = {
+            'iroot': iroot_word,
             'root': root_word,
             'def': def_text,
             'alts': alt_spellings,
@@ -148,19 +158,15 @@ def parse_tsv(file_path):
             parsed_tsv[word] = []
         parsed_tsv[word].append(entry)
         if root_word == word:
-            sanitized_def = re.sub(r'\s+', WHITESPACE_PLACEHOLDER, def_text)
-            root_def_key = create_key(root_word, sanitized_def)
-            print("Adding key: " + root_def_key)
+            root_def_key = create_key(root_word, def_text)
             root_def_set.add(root_def_key)
 
     # Set all conjugation definitions to the root word definition
     for word in parsed_tsv:
         for entry in parsed_tsv[word]:
-            sanitized_def = re.sub(r'\s+', WHITESPACE_PLACEHOLDER, entry['def'])
-            root_def_key = create_key(entry['root'], sanitized_def)
+            root_def_key = create_key(entry['root'], entry['def'])
             if root_def_key not in root_def_set:
-                print("Cound not find key of: " + root_def_key)
-                print(f"Mismatched def for: '{entry['root']}' ({entry['pos']})")
+                raise ValueError("Definition does not match root word definition: " + word)
 
     exit(0)
 

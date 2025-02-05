@@ -54,12 +54,26 @@ def parse_definition(defi, valid_words, word):
         if len(split_by_pos) > 1:
             if not word_is_root_word:
                 raise ValueError("Definition lists conjugations for nonroot word: " + defi)
-            conjugations = split_by_pos[1].split(",")
-            conjugations = [x.strip() for x in conjugations]
-            # FIXME: fix the 'or' cases
-            # for conj in conjugations:
-            #     if not conj.isupper():
-            #         raise ValueError(f"Definition contains a conjugation that is not uppercase: " + defi)
+            tenses = split_by_pos[1].split(",")
+            tenses = [x.strip() for x in tenses]
+            conjugations = []
+            loo = None
+            for tense in tenses:
+                tense_conjs_split = tense.strip().replace("or", " ").split()
+                tense_conjs = []
+                for conj in tense_conjs_split:
+                    conj = conj.strip()
+                    if conj[0] == '(' and conj[-1] == ')':
+                        if loo is not None:
+                            raise ValueError("Conjugation lists multiple languages of origin: " + defi)
+                        loo = conj
+                        continue
+                    if not conj.isupper():
+                        print("conj is " + conj)
+                        raise ValueError("Definition contains a conjugation '' that is not uppercase: " + defi)
+                    tense_conjs.append([conj, loo])
+                    loo = None
+                conjugations.append(tense_conjs)
         defi = defi[:defi.find('[')].strip()
     else:
         raise ValueError("Definition does not contain part of speech: " + defi)
@@ -120,30 +134,25 @@ def parse_tsv(file_path):
             parsed_definitions.append([iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
 
     parsed_tsv = {}
-    root_def_set = set()
-    for iroot_word, root_word, def_text, alt_spellings, pos, conj, mis, word in parsed_definitions:
-        if conj and len(conj) == 3:
-            conj_set = set(conj)
-            conj_ed = word + 'ED'
-            conj_ing = word + 'ING'
-            conj_s = word + 'S'
-            conj_es = word + 'ES'
-            uses_es = False
-            if conj_ed in conj_set:
-                conj_set.remove(conj_ed)
-            if conj_ing in conj_set:
-                conj_set.remove(conj_ing)
-            if conj_s in conj_set and conj_es not in conj_set:
-                conj_set.remove(conj_s)
-            if conj_es in conj_set and conj_s not in conj_set:
-                conj_set.remove(conj_es)
-                uses_es = True
-
-            if len(conj_set) == 0:
-                if uses_es:
-                    conj = ['-ED', '-ING', '-ES']
-                else:
-                    conj = ['-ED', '-ING', '-S']
+    root_def_to_entry = {}
+    for iroot_word, root_word, def_text, alt_spellings, pos, conjugations, mis, word in parsed_definitions:
+        conjugations_exp = set()
+        if conjugations:
+            total_conjs = 0
+            for tenses in conjugations:
+                for tense in tenses:
+                    conjugations_exp.add(tense[0].replace('-', word))
+                    total_conjs += 1
+            if len(conjugations) == 3 and total_conjs == 3:
+                wl = len(word)
+                abrev_conjs = set()
+                for tense in conjugations:
+                    if len(tense[0][0]) <= wl:
+                        break
+                    abrev_conjs.add(tense[0][0][wl:])
+                if abrev_conjs == {'ED', 'ING', 'S'} or abrev_conjs == {'ED', 'ING', 'ES'}:
+                    for tense in conjugations:
+                        tense[0][0] = '-' + tense[0][0][:wl]
 
         entry = {
             'iroot': iroot_word,
@@ -151,7 +160,8 @@ def parse_tsv(file_path):
             'def': def_text,
             'alts': alt_spellings,
             'pos': pos,
-            'conjs': conj,
+            'conjs': conjugations,
+            'conjs_exp': conjugations_exp,
             'mis': mis,
         }
         if word not in parsed_tsv:
@@ -159,14 +169,19 @@ def parse_tsv(file_path):
         parsed_tsv[word].append(entry)
         if root_word == word:
             root_def_key = create_key(root_word, def_text)
-            root_def_set.add(root_def_key)
+            root_def_to_entry[root_def_key] = entry
 
     # Set all conjugation definitions to the root word definition
     for word in parsed_tsv:
         for entry in parsed_tsv[word]:
-            root_def_key = create_key(entry['root'], entry['def'])
-            if root_def_key not in root_def_set:
+            root = entry['root']
+            root_def_key = create_key(root, entry['def'])
+            if root_def_key not in root_def_to_entry:
                 raise ValueError("Definition does not match root word definition: " + word)
+            root_entry = root_def_to_entry[root_def_key]
+            if word != root and word not in root_entry['conjs_exp']:
+                print("conjs exp: " + str(root_entry['conjs_exp']))
+                raise ValueError("Conjugation not listed as a conjugation for the root word: " + word)
 
     exit(0)
 

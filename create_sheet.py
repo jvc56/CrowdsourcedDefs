@@ -4,6 +4,7 @@ import argparse
 
 VALID_POS = {'n', 'v', 'adj', 'adv', 'interj', 'pron', 'prep', 'conj'}
 KEY_DELIMITER = '###'
+VALID_MISSPELLINGS = {'etc'}
 
 def parse_definition(defi, valid_words, word):
     if defi.count('[') != 1:
@@ -15,7 +16,7 @@ def parse_definition(defi, valid_words, word):
 
     for match in re.finditer(r'\[(^[^\]\s]+)', defi):
         part_of_speech = match.group(1)
-        if part_of_speech not in valid_pos:
+        if part_of_speech not in VALID_POS:
             raise ValueError("Definition contains invalid part of speech: " + defi)
 
     iroot_word = None
@@ -68,7 +69,6 @@ def parse_definition(defi, valid_words, word):
                         loo = conj
                         continue
                     if not conj.isupper():
-                        print("conj is " + conj)
                         raise ValueError("Definition contains a conjugation '' that is not uppercase: " + defi)
                     tense_conjs.append([conj, loo])
                     loo = None
@@ -91,7 +91,7 @@ def parse_definition(defi, valid_words, word):
     def_words = defi.split()
     misspelled = []
     for word in def_words:
-        if len(word) > 1 and len(word) <= 15 and word.isalpha() and word.islower() and word.upper() not in valid_words:
+        if len(word) > 1 and len(word) <= 15 and word.isalpha() and word.islower() and word.upper() not in valid_words and word not in VALID_MISSPELLINGS:
             misspelled.append(word.upper())
 
     return  iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled
@@ -197,13 +197,13 @@ def parse_tsv(file_path):
         for entry in parsed_tsv[word]:
             word_pos_key = create_key(word, entry['pos'])
             root_word = entry['root']
-            if word_pos_key in multiple_identical_word_pos and len(entry['alts']) > 0:
-                reserved_nodes.add(create_key(root_word, pos))
+            if word_pos_key in multiple_identical_word_pos:
+                reserved_nodes.add(create_key(root_word, entry['pos']))
             root_def_key = create_key(root_word, entry['def'])
             if root_def_key not in root_def_to_entry:
                 raise ValueError("Definition does not match root word definition: " + word)
             root_entry = root_def_to_entry[root_def_key]
-            if word != root_word and (root_entry['conjs_exp'] is None or word not in root_entry['conjs_exp']):
+            if entry['iroot'] is None and word != root_word and (root_entry['conjs_exp'] is None or word not in root_entry['conjs_exp']):
                 root_entry['mis_conj'].append(word)
 
     # Make the graph undirected and remove dead end neighbors
@@ -229,19 +229,6 @@ def dfs(adj_list, node_key, current_group):
     for neighbor in node_val['neighbors']:
         dfs(adj_list, neighbor, current_group)
 
-def print_parsed_tsv(parsed_tsv):
-    for word in parsed_tsv:
-        print(word)
-        for entry in parsed_tsv[word]:
-            print("  " + entry['pos'] + ": " + ",".join(entry['alts']))
-
-def print_adj_list(adj_list):
-    for node_key, node_val in adj_list.items():
-        print(node_key)
-        print("  root: " + node_val['root'])
-        print("  def: " + " / ".join(node_val['def']))
-        print("  neighbors: " + ",".join(node_val['neighbors']))
-
 # Main entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
@@ -250,11 +237,15 @@ if __name__ == "__main__":
 
     parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(args.file)
 
+    print("Start reserved nodes: " + "\n".join(start_reserved_nodes))
+
     # Run the DFS on reserved nodes to mark them as visited
-    reserved_nodes = set()
+    reserved_nodes = start_reserved_nodes.copy()
     for node_key in start_reserved_nodes:
         if node_key in adj_list:
             dfs(adj_list, node_key, reserved_nodes)
+
+    print("Reserved nodes: " + "\n".join(reserved_nodes))
 
     completed_groups = {}
     for node_key in adj_list:
@@ -283,25 +274,21 @@ if __name__ == "__main__":
             adj_list_key = create_key(root, entry['pos'])
             if adj_list_key not in completed_groups and adj_list_key not in reserved_nodes:
                 raise ValueError("Key not found in alt spelling groups: " + adj_list_key)
-            if adj_list_key in completed_groups:
+            if adj_list_key in completed_groups and adj_list_key not in reserved_nodes:
                 completed_alts = completed_groups[adj_list_key]['alts']
                 plurality_def = completed_groups[adj_list_key]['pdef']
                 entry['alts'] = [x for x in completed_alts if x != root]
                 entry['def'] = plurality_def
 
-    output_file = "to.tsv"
+    output_file = "out.tsv"
 
-    # Need to make notes for
-    # - multiple root words
-    # - missing conjugations
-    # - misspelled words
-    # - new suggested definition
     new_defs_log = "New Definitions:\n"
     with open(output_file, 'w', newline='', encoding='utf-8') as tsv_out:
         writer = csv.writer(tsv_out, delimiter='\t')
 
         for word, entries in parsed_tsv.items():
             definitions = []
+            tags = ""
             for entry in entries:
                 definition_str = ""
 
@@ -336,8 +323,24 @@ if __name__ == "__main__":
 
                 definitions.append(definition_str)
 
+                if entry['iroot']:
+                    if tags != "":
+                        tags += ", "
+                    tags += f"Two Roots ({entry['root']} and {entry['iroot']})"
+                if len(entry['mis_conj']) > 0:
+                    if tags != "":
+                        tags += ", "
+                    tags += "Missing/Invalid Conjugations (" + ", ".join(entry['mis_conj']) + ")"
+                if len(entry['mis']) > 0:
+                    if tags != "":
+                        tags += ", "
+                    tags += "Invalid words (" + ", ".join(entry['mis']) + ")"
+
+            old_def = word_def_dict[word]
             new_def = " / ".join(definitions)
-            if new_def != word_def_dict[word]:
-                new_defs_log += "\n".join(['word: ' + word, 'old def: ' +word_def_dict[word], 'new def: ' + new_def]) + "\n"
-            writer.writerow([word, " / ".join(definitions)])
+
+            row_to_write = [word.strip(), old_def.strip(), new_def.strip(), tags]
+            if new_def != old_def or tags != "":
+                new_defs_log += "\n".join(row_to_write) + "\n\n"
+            writer.writerow(row_to_write)
     print(new_defs_log)

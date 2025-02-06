@@ -3,7 +3,6 @@ import re
 import argparse
 
 VALID_POS = {'n', 'v', 'adj', 'adv', 'interj', 'pron', 'prep', 'conj'}
-WHITESPACE_PLACEHOLDER = '*'
 KEY_DELIMITER = '###'
 
 def parse_definition(defi, valid_words, word):
@@ -108,6 +107,7 @@ def parse_tsv(file_path):
     valid_words = set()
 
     word_def_lines = []
+    word_def_dict = {}
     with open(file_path, 'r') as file:
         for line in file:
             word_and_all_defis = line.split('\t')
@@ -124,6 +124,7 @@ def parse_tsv(file_path):
 
             valid_words.add(word)
             word_def_lines.append((word, all_defis))
+            word_def_dict[word] = all_defis
 
     parsed_definitions = []
 
@@ -135,9 +136,12 @@ def parse_tsv(file_path):
 
     parsed_tsv = {}
     root_def_to_entry = {}
+    num_word_pos = {}
+    adj_list = {}
     for iroot_word, root_word, def_text, alt_spellings, pos, conjugations, mis, word in parsed_definitions:
-        conjugations_exp = set()
+        conjugations_exp = None
         if conjugations:
+            conjugations_exp = set()
             total_conjs = 0
             for tenses in conjugations:
                 for tense in tenses:
@@ -147,12 +151,12 @@ def parse_tsv(file_path):
                 wl = len(word)
                 abrev_conjs = set()
                 for tense in conjugations:
-                    if len(tense[0][0]) <= wl:
+                    if len(tense[0][0]) <= wl or tense[0][0][:wl] != word:
                         break
                     abrev_conjs.add(tense[0][0][wl:])
                 if abrev_conjs == {'ED', 'ING', 'S'} or abrev_conjs == {'ED', 'ING', 'ES'}:
                     for tense in conjugations:
-                        tense[0][0] = '-' + tense[0][0][:wl]
+                        tense[0][0] = '-' + tense[0][0][wl:]
 
         entry = {
             'iroot': iroot_word,
@@ -163,28 +167,44 @@ def parse_tsv(file_path):
             'conjs': conjugations,
             'conjs_exp': conjugations_exp,
             'mis': mis,
+            'mis_conj': [],
         }
         if word not in parsed_tsv:
             parsed_tsv[word] = []
         parsed_tsv[word].append(entry)
+
+        word_pos_key = create_key(word, pos)
+        if word_pos_key not in num_word_pos:
+            num_word_pos[word_pos_key] = 0
+        num_word_pos[word_pos_key] += 1
+        root_pos_key = create_key(root_word, pos)
+        if root_pos_key not in adj_list:
+            adj_list[root_pos_key] = {
+                'root': root_word,
+                'def': def_text,
+                'neighbors': set(),
+                'vis': False,
+            }
+        adj_list[root_pos_key]['neighbors'] = adj_list[root_pos_key]['neighbors'].union([create_key(x, pos) for x in alt_spellings])
         if root_word == word:
             root_def_key = create_key(root_word, def_text)
             root_def_to_entry[root_def_key] = entry
 
-    # Set all conjugation definitions to the root word definition
+    multiple_identical_word_pos = {key for key, value in num_word_pos.items() if value > 1}
+    reserved_nodes = set()
+
     for word in parsed_tsv:
         for entry in parsed_tsv[word]:
-            root = entry['root']
-            root_def_key = create_key(root, entry['def'])
+            word_pos_key = create_key(word, entry['pos'])
+            root_word = entry['root']
+            if word_pos_key in multiple_identical_word_pos and len(entry['alts']) > 0:
+                reserved_nodes.add(create_key(root_word, pos))
+            root_def_key = create_key(root_word, entry['def'])
             if root_def_key not in root_def_to_entry:
                 raise ValueError("Definition does not match root word definition: " + word)
             root_entry = root_def_to_entry[root_def_key]
-            if word != root and word not in root_entry['conjs_exp']:
-                print("conjs exp: " + str(root_entry['conjs_exp']))
-                raise ValueError("Conjugation not listed as a conjugation for the root word: " + word)
-
-    exit(0)
-
+            if word != root_word and (root_entry['conjs_exp'] is None or word not in root_entry['conjs_exp']):
+                root_entry['mis_conj'].append(word)
 
     # Make the graph undirected and remove dead end neighbors
     for node_key, node_val in adj_list.items():
@@ -194,15 +214,18 @@ def parse_tsv(file_path):
             else:
                 adj_list[neighbor]['neighbors'].add(node_key)
 
-    return parsed_tsv, adj_list
+    return parsed_tsv, adj_list, reserved_nodes, word_def_dict
 
 def dfs(adj_list, node_key, current_group):
     node_val = adj_list[node_key]
     if node_val['vis']:
         return
     node_val['vis'] = True
-    current_group['defs'].extend(node_val['defs'])
-    current_group['words'].append(node_val['root'])
+    if isinstance(current_group, set):
+        current_group.add(node_key)
+    else:
+        current_group['defs'].append(node_val['def'])
+        current_group['words'].append(node_val['root'])
     for neighbor in node_val['neighbors']:
         dfs(adj_list, neighbor, current_group)
 
@@ -216,7 +239,7 @@ def print_adj_list(adj_list):
     for node_key, node_val in adj_list.items():
         print(node_key)
         print("  root: " + node_val['root'])
-        print("  defs: " + " / ".join(node_val['defs']))
+        print("  def: " + " / ".join(node_val['def']))
         print("  neighbors: " + ",".join(node_val['neighbors']))
 
 # Main entry point
@@ -225,9 +248,13 @@ if __name__ == "__main__":
     parser.add_argument("file", help="Path to the input TSV file.")
     args = parser.parse_args()
 
-    parsed_tsv, adj_list = parse_tsv(args.file)
+    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(args.file)
 
-    # print_adj_list(adj_list)
+    # Run the DFS on reserved nodes to mark them as visited
+    reserved_nodes = set()
+    for node_key in start_reserved_nodes:
+        if node_key in adj_list:
+            dfs(adj_list, node_key, reserved_nodes)
 
     completed_groups = {}
     for node_key in adj_list:
@@ -237,12 +264,11 @@ if __name__ == "__main__":
             continue
         def_counts = {}
         for root_def in current_group['defs']:
-            sanitized_def = re.sub(r'\s+', WHITESPACE_PLACEHOLDER, root_def)
-            if sanitized_def not in def_counts:
-                def_counts[sanitized_def] = 0
-            def_counts[sanitized_def] += 1
+            if root_def not in def_counts:
+                def_counts[root_def] = 0
+            # use definition length as a tiebreaker
+            def_counts[root_def] += 10000000 + len(root_def)
         plurality_def = max(def_counts, key=def_counts.get)
-        plurality_def = plurality_def.replace(WHITESPACE_PLACEHOLDER, ' ')
         sorted_alt_spellings = sorted(current_group['words'])
         _, pos = decompose_key(node_key)
         for salt in sorted_alt_spellings:
@@ -250,21 +276,27 @@ if __name__ == "__main__":
                 'pdef': plurality_def,
                 'alts': sorted_alt_spellings,
             }
-    
+
     for word in parsed_tsv:
         for entry in parsed_tsv[word]:
             root = entry['root']
             adj_list_key = create_key(root, entry['pos'])
-            if adj_list_key not in completed_groups:
-                raise ValueError(f"Key '{adj_list_key}' not found in alt spelling groups")
-            completed_alts = completed_groups[adj_list_key]['alts']
-            plurality_def = completed_groups[adj_list_key]['pdef']
-            entry['alts'] = [x for x in completed_alts if x != root]
-            entry['def'] = plurality_def
-    
-    # print_parsed_tsv(parsed_tsv)
+            if adj_list_key not in completed_groups and adj_list_key not in reserved_nodes:
+                raise ValueError("Key not found in alt spelling groups: " + adj_list_key)
+            if adj_list_key in completed_groups:
+                completed_alts = completed_groups[adj_list_key]['alts']
+                plurality_def = completed_groups[adj_list_key]['pdef']
+                entry['alts'] = [x for x in completed_alts if x != root]
+                entry['def'] = plurality_def
+
     output_file = "to.tsv"
 
+    # Need to make notes for
+    # - multiple root words
+    # - missing conjugations
+    # - misspelled words
+    # - new suggested definition
+    new_defs_log = "New Definitions:\n"
     with open(output_file, 'w', newline='', encoding='utf-8') as tsv_out:
         writer = csv.writer(tsv_out, delimiter='\t')
 
@@ -272,6 +304,9 @@ if __name__ == "__main__":
             definitions = []
             for entry in entries:
                 definition_str = ""
+
+                if entry['iroot']:
+                    definition_str += f"{entry['iroot']}, "
 
                 if entry['root'] and entry['root'] != word:
                     definition_str += f"{entry['root']}, "
@@ -283,10 +318,26 @@ if __name__ == "__main__":
 
                 pos_str = f"[{entry['pos']}"
                 if entry['conjs']:
-                    pos_str += f" {', '.join(entry['conjs'])}"
+                    tense_strs = []
+                    for tense_conjs in entry['conjs']:
+                        conj_forms = []
+                        current_loo = None
+                        for conj, loo in tense_conjs:
+                            if loo:
+                                current_loo = loo
+                            conj_forms.append(conj)
+                        tense_str = " or ".join(conj_forms)
+                        if current_loo:
+                            tense_str += f" {current_loo}"
+                        tense_strs.append(tense_str)
+                    pos_str += f" {', '.join(tense_strs)}"
                 pos_str += "]"
                 definition_str += " " + pos_str
 
                 definitions.append(definition_str)
 
+            new_def = " / ".join(definitions)
+            if new_def != word_def_dict[word]:
+                new_defs_log += "\n".join(['word: ' + word, 'old def: ' +word_def_dict[word], 'new def: ' + new_def]) + "\n"
             writer.writerow([word, " / ".join(definitions)])
+    print(new_defs_log)

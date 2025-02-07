@@ -237,15 +237,16 @@ if __name__ == "__main__":
 
     parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(args.file)
 
-    print("Start reserved nodes: " + "\n".join(start_reserved_nodes))
-
     # Run the DFS on reserved nodes to mark them as visited
     reserved_nodes = start_reserved_nodes.copy()
     for node_key in start_reserved_nodes:
         if node_key in adj_list:
             dfs(adj_list, node_key, reserved_nodes)
 
-    print("Reserved nodes: " + "\n".join(reserved_nodes))
+    reserved_words = set()
+    for node_key in reserved_nodes:
+        word, _ = decompose_key(node_key)
+        reserved_words.add(word)
 
     completed_groups = {}
     for node_key in adj_list:
@@ -335,6 +336,11 @@ if __name__ == "__main__":
                     if tags != "":
                         tags += ", "
                     tags += "Invalid words (" + ", ".join(entry['mis']) + ")"
+
+            if word in reserved_words:
+                if tags != "":
+                    tags += ", "
+                tags += "MultiPOSDef Root"
 
             old_def = word_def_dict[word]
             new_def = " / ".join(definitions)

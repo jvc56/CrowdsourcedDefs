@@ -229,6 +229,10 @@ def dfs(adj_list, node_key, current_group):
     for neighbor in node_val['neighbors']:
         dfs(adj_list, neighbor, current_group)
 
+def has_language_of_origin(root_def: str) -> bool:
+    match = re.match(r"^\(.*?\)", root_def.strip())
+    return match is not None
+
 # Main entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
@@ -258,8 +262,10 @@ if __name__ == "__main__":
         for root_def in current_group['defs']:
             if root_def not in def_counts:
                 def_counts[root_def] = 0
-            # use definition length as a tiebreaker
-            def_counts[root_def] += 10000000 + len(root_def)
+            has_loo = 0
+            if has_language_of_origin(root_def):
+                has_loo = 1
+            def_counts[root_def] += 1000000 * has_loo + 1000 + len(root_def)
         plurality_def = max(def_counts, key=def_counts.get)
         sorted_alt_spellings = sorted(current_group['words'])
         _, pos = decompose_key(node_key)
@@ -282,8 +288,8 @@ if __name__ == "__main__":
                 entry['def'] = plurality_def
 
     output_file = "out.tsv"
-
     new_defs_log = "New Definitions:\n"
+    total = 0
     with open(output_file, 'w', newline='', encoding='utf-8') as tsv_out:
         writer = csv.writer(tsv_out, delimiter='\t')
 
@@ -335,7 +341,7 @@ if __name__ == "__main__":
                 if len(entry['mis']) > 0:
                     if tags != "":
                         tags += ", "
-                    tags += "Invalid words (" + ", ".join(entry['mis']) + ")"
+                    tags += "Invalid Words (" + ", ".join(entry['mis']) + ")"
 
             if word in reserved_words:
                 if tags != "":
@@ -343,10 +349,14 @@ if __name__ == "__main__":
                 tags += "MultiPOSDef Root"
 
             old_def = word_def_dict[word]
-            new_def = " / ".join(definitions)
-
-            row_to_write = [word.strip(), old_def.strip(), new_def.strip(), tags]
+            new_def = (" / ".join(definitions)).strip()
+            new_def_empty_if_same = new_def
+            if old_def == new_def:
+                new_def_empty_if_same = ""
+            row_to_write = [word.strip(), old_def.strip(), new_def_empty_if_same, tags]
             if new_def != old_def or tags != "":
                 new_defs_log += "\n".join(row_to_write) + "\n\n"
+                total += 1
             writer.writerow(row_to_write)
     print(new_defs_log)
+    print("Total: ", total)

@@ -237,6 +237,7 @@ def has_language_of_origin(root_def: str) -> bool:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
     parser.add_argument("file", help="Path to the input TSV file.")
+    parser.add_argument("--validate", action="store_true", default=False, help="Just validates the input without making a new TSV or printing.")
     args = parser.parse_args()
 
     parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(args.file)
@@ -286,6 +287,9 @@ if __name__ == "__main__":
                 plurality_def = completed_groups[adj_list_key]['pdef']
                 entry['alts'] = [x for x in completed_alts if x != root]
                 entry['def'] = plurality_def
+
+    if args.validate:
+        exit(0)
 
     output_file = "out.tsv"
     new_defs_log = "New Definitions:\n"
@@ -353,6 +357,10 @@ if __name__ == "__main__":
             new_def_empty_if_same = new_def
             if old_def == new_def:
                 new_def_empty_if_same = ""
+            else:
+                if tags != "":
+                    tags += ", "
+                tags += "Autosuggestion"
             row_to_write = [word.strip(), old_def.strip(), new_def_empty_if_same, tags]
             if new_def != old_def or tags != "":
                 new_defs_log += "\n".join(row_to_write) + "\n\n"

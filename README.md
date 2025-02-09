@@ -4,7 +4,7 @@ This repo contains all of the resources for the CSW Crowdsourcing project.
 
 ## Links
 
-[Contributors' Guide](https://docs.google.com/document/d/1ZPDaUxzdBAhBfuN1Hg8OK1_tw5pbt020p4X4Stjww80)
+[Contributors' Guide](https://docs.google.com/document/d/1ZPDaUxzdBAhBfuN1Hg8OK1_tw5pbt020p4X4Stjww80)<br>
 [Definitions Spreadsheet](https://docs.google.com/spreadsheets/d/1Msy6NKnhxCoBF23IwlfemSCZpgacJND4sWTQpvi7LZ4)
 
 ## Installing the word list into Zyzzyva

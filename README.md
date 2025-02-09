@@ -11,7 +11,7 @@ This repo contains all of the resources for the CSW Crowdsourcing project.
 
 ### Overwrite the existing CSW db file
 
-You can bypass using the python scripts to update your Zyzzyva by replacing the local lexicon file with the most recent crowdsourced definitions file.
+You can directly update your Zyzzyva by replacing the local lexicon file with the most recent crowdsourced definitions file.
 
   1. <b> Download the CSW24.zip file. </b>
      1. From the ```editions``` folder, navigate to the most recent edition and download CSW24.zip.

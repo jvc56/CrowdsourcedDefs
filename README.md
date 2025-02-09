@@ -44,7 +44,7 @@ You can directly update your Zyzzyva by replacing the local lexicon file with th
 
 ### Install with the python TK app
 
-These instructions assume you have the python TK module installed.
+This is an optional step to manually update your current CSW24.db file with the crowdsourced CSW24.tsv file. These instructions assume you have the python TK module installed.
 
 Download the add_defs_app.py script and save it to some accessible location. For some operating systems, you may be able to go to the file in your default file explorer application and double click to launch it. If double clicking doesn't work, navigate to the same directory as the file on the command line and run the following command:
 
@@ -62,9 +62,9 @@ Download the add_defs.py script and save it to some accessible location. Navigat
 ./add_defs_app.py --defs <definitions_file> --db <database_file>
 ```
 
-The definitions file is the tab separated definitions file which lists the word followed by its definition. These are provided in the editions directory in this repo. If you would like to download the definitions directly from the crowdsourced Google Sheet, follow the instructions in the Developer Tools section.
+The definitions file is the tab separated definitions file (CSW24.tsv) which lists the word followed by its definition. The .tsv files are provided in the editions directory in this repo. <b>If you would like to download the definitions directly from the crowdsourced Google Sheet, follow the instructions in the Developer Tools section.</b>
 
-The database file argument is the name of the the SQLite database file that contains the words and definitions for Zyzzyva. It should look something like 'CSW24.db' and can usually be found in C:\\Users\\<name>\\.collinszyzzyva\\lexicons for Collins Zyzzyva or C:\\Users\\<name>\\Zyzzyva\\lexicons for NASPA Zyzzyva. For MacOS and Linux users it can be found in ~/.collinszyzzyva/lexicons for Collins Zyzzyva or ~/Zyzzyva/lexicons for NASPA Zyzzyva.
+The database file argument is the name of the the SQLite database file that contains the words and definitions for Zyzzyva. It should look something like 'CSW24.db' and can usually be found in ```C:\\Users\\<name>\\.collinszyzzyva\\lexicons``` for Collins Zyzzyva or ```C:\\Users\\<name>\\Zyzzyva\\lexicons``` for NASPA Zyzzyva. For MacOS and Linux users it can be found in ```~/.collinszyzzyva/lexicons``` for Collins Zyzzyva or ```~/Zyzzyva/lexicons``` for NASPA Zyzzyva.
 
 ## Developer Tools
 

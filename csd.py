@@ -1,10 +1,15 @@
 import csv
 import re
 import argparse
+import requests
+from io import StringIO
 
 VALID_POS = {'n', 'v', 'adj', 'adv', 'interj', 'pron', 'prep', 'conj'}
 KEY_DELIMITER = '###'
 VALID_MISSPELLINGS = {'etc'}
+RETRIEVED_FILENAME = 'latest_edition.txt'
+TSV_URL = "https://docs.google.com/spreadsheets/d/1Msy6NKnhxCoBF23IwlfemSCZpgacJND4sWTQpvi7LZ4/export?format=tsv"
+
 
 def parse_definition(defi, valid_words, word):
     if defi.count('[') != 1:
@@ -233,14 +238,8 @@ def has_language_of_origin(root_def: str) -> bool:
     match = re.match(r"^\(.*?\)", root_def.strip())
     return match is not None
 
-# Main entry point
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
-    parser.add_argument("file", help="Path to the input TSV file.")
-    parser.add_argument("--validate", action="store_true", default=False, help="Just validates the input without making a new TSV or printing.")
-    args = parser.parse_args()
-
-    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(args.file)
+def validate(input_lexicon):
+    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(input_lexicon)
 
     # Run the DFS on reserved nodes to mark them as visited
     reserved_nodes = start_reserved_nodes.copy()
@@ -288,9 +287,9 @@ if __name__ == "__main__":
                 entry['alts'] = [x for x in completed_alts if x != root]
                 entry['def'] = plurality_def
 
-    if args.validate:
-        exit(0)
+    return parsed_tsv, reserved_words, word_def_dict
 
+def create_sheet(parsed_tsv, reserved_words, word_def_dict):
     output_file = "out.tsv"
     new_defs_log = "New Definitions:\n"
     total = 0
@@ -368,3 +367,52 @@ if __name__ == "__main__":
             writer.writerow(row_to_write)
     print(new_defs_log)
     print("Total: ", total)
+
+def retrieve_latest_edition():
+    response = requests.get(TSV_URL)
+    response.raise_for_status()  # Ensure we downloaded successfully
+    
+    tsv_content = response.text
+    reader = csv.reader(StringIO(tsv_content), delimiter='\t')
+    
+    with open(RETRIEVED_FILENAME, "w") as outfile:
+        # Skip the header row
+        # Skip the first two rows
+        next(reader, None)  # Skip the first row
+        next(reader, None)  # Skip the second row
+
+        for row in reader:
+            if len(row) < 6:
+                raise ValueError("Row does not have enough columns: " + str(row))
+            
+            word = row[0].strip()
+            existing_def = row[1].strip()
+            autosuggested_def = row[2].strip()
+            new_def = row[4].strip()
+            completed = row[5].strip().lower() in ("true", "1", "yes", "x")
+            
+            if completed:
+                definition = new_def or autosuggested_def or existing_def
+            else:
+                definition = existing_def
+            
+            # Write manually to the file with tabs between values
+            outfile.write(f"{word}\t{definition}\n")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
+    parser.add_argument("file", nargs="?", default=None, help="Specify the TSV file to process.")
+    parser.add_argument("--create", action="store_true", help="Creates a new TSV file from the input definitions for crowdsourcing on Google Sheets.")
+    
+    args = parser.parse_args()
+
+    filename = args.file if args.file else RETRIEVED_FILENAME
+    
+    if args.file is None:
+        retrieve_latest_edition()
+    
+    parsed_tsv, reserved_words, word_def_dict = validate(filename)
+
+    if args.create:
+        create_sheet(parsed_tsv, reserved_words, word_def_dict)

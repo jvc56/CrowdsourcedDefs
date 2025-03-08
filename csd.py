@@ -113,19 +113,24 @@ def parse_tsv(file_path):
 
     word_def_lines = []
     word_def_dict = {}
+    errors = []
     with open(file_path, 'r') as file:
         for line in file:
             word_and_all_defis = line.split('\t')
             if len(word_and_all_defis) != 2:
-                raise ValueError("Line does not have exactly one tab: " + line)
+                errors.append("Line does not have exactly one tab: " + line)
+                continue
             word = word_and_all_defis[0].strip()
             all_defis = word_and_all_defis[1].strip()
             if word == '':
-                raise ValueError("Word is empty: " + line)
+                errors.append("Word is empty: " + line)
+                continue
             if all_defis == '':
-                raise ValueError("Definition is empty: " + line)
+                errors.append("Definition is empty: " + line)
+                continue
             if not word.isupper():
-                raise ValueError("Word is not uppercase: " + line)
+                errors.append("Word is not uppercase: " + line)
+                continue
 
             valid_words.add(word)
             word_def_lines.append((word, all_defis))
@@ -136,8 +141,12 @@ def parse_tsv(file_path):
     for word, all_defis in word_def_lines:
         all_defis_split = all_defis.split(' / ')
         for defi in all_defis_split:
-            iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled = parse_definition(defi, valid_words, word)
-            parsed_definitions.append([iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
+            try:
+                iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled = parse_definition(defi, valid_words, word)
+                parsed_definitions.append([iroot_word, root_word, defi, alt_spellings, part_of_speech, conjugations, misspelled, word])
+            except ValueError as e:
+                errors.append(str(e))
+                continue
 
     parsed_tsv = {}
     root_def_to_entry = {}
@@ -206,10 +215,14 @@ def parse_tsv(file_path):
                 reserved_nodes.add(create_key(root_word, entry['pos']))
             root_def_key = create_key(root_word, entry['def'])
             if root_def_key not in root_def_to_entry:
-                raise ValueError("Definition does not match root word definition: " + word)
+                errors.append("Root word definition not found: " + word)
+                continue
             root_entry = root_def_to_entry[root_def_key]
             if entry['iroot'] is None and word != root_word and (root_entry['conjs_exp'] is None or word not in root_entry['conjs_exp']):
                 root_entry['mis_conj'].append(word)
+
+    if errors:
+        return None, None, None, None, errors
 
     # Make the graph undirected and remove dead end neighbors
     for node_key, node_val in adj_list.items():
@@ -239,7 +252,11 @@ def has_language_of_origin(root_def: str) -> bool:
     return match is not None
 
 def validate(input_lexicon):
-    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict = parse_tsv(input_lexicon)
+    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict, errors = parse_tsv(input_lexicon)
+
+    if errors:
+        print("\n".join(errors))
+        raise Exception("Errors found in input TSV file.")
 
     # Run the DFS on reserved nodes to mark them as visited
     reserved_nodes = start_reserved_nodes.copy()

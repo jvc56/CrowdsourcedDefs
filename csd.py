@@ -57,7 +57,7 @@ def parse_definition(defi, valid_words, word, existing_words_info):
         part_of_speech = split_by_pos[0]
         if len(split_by_pos) > 1:
             if not word_is_root_word and word not in ROOT_WORD_EXCEPTIONS:
-                raise ValueError("definition lists conjugations for nonroot word: " + defi)
+                raise ValueError("definition lists conjugations for nonroot word: " + word + ", " + defi)
             tenses = split_by_pos[1].split(",")
             tenses = [x.strip() for x in tenses]
             conjugations = []
@@ -76,7 +76,7 @@ def parse_definition(defi, valid_words, word, existing_words_info):
     else:
         raise ValueError("definition does not contain part of speech: " + defi)
 
-    if word in existing_words_info and existing_words_info[word]['pos'] == part_of_speech and existing_words_info[word]['is_root'] != word_is_root_word:
+    if existing_words_info and word in existing_words_info and existing_words_info[word]['pos'] == part_of_speech and existing_words_info[word]['is_root'] != word_is_root_word:
         raise ValueError("invalid root status: " + word)
 
     alt_spellings_match = re.search(r', also ([^[]+)', defi)
@@ -115,34 +115,36 @@ def parse_tsv(file_path, existing_lexicon):
     word_def_dict = {}
     errors = []
 
-    existing_words_info = {}
-    with open(existing_lexicon, 'r') as file:
-        for line in file:
-            word_and_defi = line.split('\t')
-            if len(word_and_defi) != 2:
-                errors.append("line does not have exactly one tab: " + line)
-                continue
-            word = word_and_defi[0].strip()
-            all_defis = word_and_defi[1].strip()
-            all_defis_split = all_defis.split(' / ')
-            for defi in all_defis_split:
-                is_conj = re.search(r'^([A-Z]+),', defi)
-                word_is_root = is_conj is None
-                pos_matches = re.findall(r'\[(\w+)', defi)
-                if len(pos_matches) != 1:
-                    errors.append(f"word {word} does not have exactly one part of speech")
+    existing_words_info = None
+    if existing_lexicon:
+        existing_words_info = {}
+        with open(existing_lexicon, 'r') as file:
+            for line in file:
+                word_and_defi = line.split('\t')
+                if len(word_and_defi) != 2:
+                    errors.append("line does not have exactly one tab: " + line)
                     continue
-                pos = pos_matches[0]
-                if pos not in VALID_POS:
-                    errors.append(f"word {word} has invalid part of speech: {pos}")
-                    continue
-                existing_words_info[word.upper()] = {
-                    'is_root': word_is_root,
-                    'pos': pos
-                }
+                word = word_and_defi[0].strip()
+                all_defis = word_and_defi[1].strip()
+                all_defis_split = all_defis.split(' / ')
+                for defi in all_defis_split:
+                    is_conj = re.search(r'^([A-Z]+),', defi)
+                    word_is_root = is_conj is None
+                    pos_matches = re.findall(r'\[(\w+)', defi)
+                    if len(pos_matches) != 1:
+                        errors.append(f"word {word} does not have exactly one part of speech")
+                        continue
+                    pos = pos_matches[0]
+                    if pos not in VALID_POS:
+                        errors.append(f"word {word} has invalid part of speech: {pos}")
+                        continue
+                    existing_words_info[word.upper()] = {
+                        'is_root': word_is_root,
+                        'pos': pos
+                    }
 
-    if errors:
-        return None, None, None, None, errors
+        if errors:
+            return None, None, None, None, errors
 
     with open(file_path, 'r') as file:
         for line in file:
@@ -395,7 +397,7 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
             if old_def == new_def:
                 new_def_empty_if_same = ""
             else:
-                autosuggestions.append([word, new_def])
+                autosuggestions.append([word, old_def, new_def])
                 if tags != "":
                     tags += ", "
                 tags += "Autosuggestion"
@@ -449,9 +451,6 @@ if __name__ == "__main__":
     parser.add_argument("--create", action="store_true", help="Creates a new TSV file from the input definitions for crowdsourcing on Google Sheets.")
     args = parser.parse_args()
     
-    if args.exist is None:
-        raise ValueError("You must specify an existing word definitions file using the --exist flag.")
-
     filename = args.file if args.file else RETRIEVED_FILENAME
     
     if args.file is None:

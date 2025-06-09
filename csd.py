@@ -12,7 +12,7 @@ RETRIEVED_FILENAME = 'latest_edition.txt'
 TSV_URL = "https://docs.google.com/spreadsheets/d/1Msy6NKnhxCoBF23IwlfemSCZpgacJND4sWTQpvi7LZ4/export?format=tsv"
 
 
-def parse_definition(defi, valid_words, word):
+def parse_definition(defi, valid_words, word, existing_words_info):
     if defi.count('[') != 1:
         raise ValueError("definition does not have exactly one '[' character: " + defi)
     if defi.count(']') != 1:
@@ -76,6 +76,9 @@ def parse_definition(defi, valid_words, word):
     else:
         raise ValueError("definition does not contain part of speech: " + defi)
 
+    if word in existing_words_info and existing_words_info[word]['pos'] == part_of_speech and existing_words_info[word]['is_root'] != word_is_root_word:
+        raise ValueError("invalid root status: " + word)
+
     alt_spellings_match = re.search(r', also ([^[]+)', defi)
     if alt_spellings_match:
         alt_spellings_str = alt_spellings_match.group(1)
@@ -105,12 +108,42 @@ def decompose_key(key):
     return key.split(KEY_DELIMITER)
 
 # Function to parse the TSV file
-def parse_tsv(file_path):
+def parse_tsv(file_path, existing_lexicon):
     valid_words = set()
 
     word_def_lines = []
     word_def_dict = {}
     errors = []
+
+    existing_words_info = {}
+    with open(existing_lexicon, 'r') as file:
+        for line in file:
+            word_and_defi = line.split('\t')
+            if len(word_and_defi) != 2:
+                errors.append("line does not have exactly one tab: " + line)
+                continue
+            word = word_and_defi[0].strip()
+            all_defis = word_and_defi[1].strip()
+            all_defis_split = all_defis.split(' / ')
+            for defi in all_defis_split:
+                is_conj = re.search(r'^([A-Z]+),', defi)
+                word_is_root = is_conj is None
+                pos_matches = re.findall(r'\[(\w+)', defi)
+                if len(pos_matches) != 1:
+                    errors.append(f"word {word} does not have exactly one part of speech")
+                    continue
+                pos = pos_matches[0]
+                if pos not in VALID_POS:
+                    errors.append(f"word {word} has invalid part of speech: {pos}")
+                    continue
+                existing_words_info[word.upper()] = {
+                    'is_root': word_is_root,
+                    'pos': pos
+                }
+
+    if errors:
+        return None, None, None, None, errors
+
     with open(file_path, 'r') as file:
         for line in file:
             word_and_all_defis = line.split('\t')
@@ -139,11 +172,14 @@ def parse_tsv(file_path):
         all_defis_split = all_defis.split(' / ')
         for defi in all_defis_split:
             try:
-                root_word, loo, defi, alt_spellings, part_of_speech, conjugations = parse_definition(defi, valid_words, word)
+                root_word, loo, defi, alt_spellings, part_of_speech, conjugations = parse_definition(defi, valid_words, word, existing_words_info)
                 parsed_definitions.append([root_word, loo, defi, alt_spellings, part_of_speech, conjugations, word])
             except ValueError as e:
                 errors.append(str(e))
                 continue
+
+    if errors:
+        return None, None, None, None, errors
 
     parsed_tsv = {}
     root_def_to_entry = {}
@@ -247,8 +283,8 @@ def dfs(adj_list, node_key, current_group):
     for neighbor in node_val['neighbors']:
         dfs(adj_list, neighbor, current_group)
 
-def validate(input_lexicon):
-    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict, errors = parse_tsv(input_lexicon)
+def validate(input_lexicon, existing_lexicon):
+    parsed_tsv, adj_list, start_reserved_nodes, word_def_dict, errors = parse_tsv(input_lexicon, existing_lexicon)
 
     if errors:
         print("\n".join(errors))
@@ -408,17 +444,20 @@ def retrieve_latest_edition():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a TSV file of words and definitions.")
-    parser.add_argument("file", nargs="?", default=None, help="Specify the TSV file to process.")
+    parser.add_argument("--file", nargs="?", default=None, help="Specify the TSV file to process.")
+    parser.add_argument("--exist", nargs="?", default=None, help="Specify the existing word definitions file.")
     parser.add_argument("--create", action="store_true", help="Creates a new TSV file from the input definitions for crowdsourcing on Google Sheets.")
-    
     args = parser.parse_args()
+    
+    if args.exist is None:
+        raise ValueError("You must specify an existing word definitions file using the --exist flag.")
 
     filename = args.file if args.file else RETRIEVED_FILENAME
     
     if args.file is None:
         retrieve_latest_edition()
     
-    parsed_tsv, reserved_words, word_def_dict = validate(filename)
+    parsed_tsv, reserved_words, word_def_dict = validate(filename, args.exist)
 
     if args.create:
         create_sheet(parsed_tsv, reserved_words, word_def_dict)

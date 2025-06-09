@@ -7,6 +7,7 @@ from io import StringIO
 VALID_POS = {'n', 'v', 'adj', 'adv', 'interj', 'pron', 'prep', 'conj'}
 KEY_DELIMITER = '###'
 ROOT_WORD_EXCEPTIONS = {'LOAST', 'LOSEN', 'SURBET'}
+SPECIAL_LOOS = {'obsolete', 'archaic', 'Spenser', 'Milton'}
 RETRIEVED_FILENAME = 'latest_edition.txt'
 TSV_URL = "https://docs.google.com/spreadsheets/d/1Msy6NKnhxCoBF23IwlfemSCZpgacJND4sWTQpvi7LZ4/export?format=tsv"
 
@@ -25,6 +26,7 @@ def parse_definition(defi, valid_words, word):
             raise ValueError("definition contains invalid part of speech: " + defi)
 
     root_word = None
+    loo = None
     alt_spellings = set()
     part_of_speech = None
     conjugations = None
@@ -42,6 +44,12 @@ def parse_definition(defi, valid_words, word):
         root_word = word
         word_is_root_word = True
 
+    loo_match = re.search(r'^\(([^)]+)\)', defi)
+    if loo_match:
+        loo = loo_match.group(1)
+        # Use +2 to account for the parens 
+        defi = defi[len(loo)+2:].strip()
+
     pos_and_conj_match = re.search(r'\[([^]]+)\]', defi)
     if pos_and_conj_match:
         pos_and_conj = pos_and_conj_match.group(1)
@@ -53,21 +61,16 @@ def parse_definition(defi, valid_words, word):
             tenses = split_by_pos[1].split(",")
             tenses = [x.strip() for x in tenses]
             conjugations = []
-            loo = None
             for tense in tenses:
                 tense_conjs_split = tense.strip().replace("or", " ").split()
                 tense_conjs = []
                 for conj in tense_conjs_split:
                     conj = conj.strip()
-                    if conj[0] == '(' and conj[-1] == ')':
-                        if loo is not None:
-                            raise ValueError("conjugation lists multiple languages of origin: " + defi)
-                        loo = conj
+                    if conj[0] == "(" and conj[-1] == ")":
                         continue
                     if not conj.isupper():
                         raise ValueError("definition contains a conjugation '' that is not uppercase: " + defi)
-                    tense_conjs.append([conj, loo])
-                    loo = None
+                    tense_conjs.append(conj)
                 conjugations.append(tense_conjs)
         defi = defi[:defi.find('[')].strip()
     else:
@@ -93,7 +96,7 @@ def parse_definition(defi, valid_words, word):
     if len(misspelled) > 0:
         raise ValueError(f"{word.upper()} definition has mispelled word(s): " + ", ".join(misspelled))
 
-    return root_word, defi, alt_spellings, part_of_speech, conjugations
+    return root_word, loo, defi, alt_spellings, part_of_speech, conjugations
 
 def create_key(word, pos):
     return word + KEY_DELIMITER + pos
@@ -136,8 +139,8 @@ def parse_tsv(file_path):
         all_defis_split = all_defis.split(' / ')
         for defi in all_defis_split:
             try:
-                root_word, defi, alt_spellings, part_of_speech, conjugations = parse_definition(defi, valid_words, word)
-                parsed_definitions.append([root_word, defi, alt_spellings, part_of_speech, conjugations, word])
+                root_word, loo, defi, alt_spellings, part_of_speech, conjugations = parse_definition(defi, valid_words, word)
+                parsed_definitions.append([root_word, loo, defi, alt_spellings, part_of_speech, conjugations, word])
             except ValueError as e:
                 errors.append(str(e))
                 continue
@@ -146,28 +149,29 @@ def parse_tsv(file_path):
     root_def_to_entry = {}
     num_word_pos = {}
     adj_list = {}
-    for root_word, def_text, alt_spellings, pos, conjugations, word in parsed_definitions:
+    for root_word, loo, def_text, alt_spellings, pos, conjugations, word in parsed_definitions:
         conjugations_exp = None
         if conjugations:
             conjugations_exp = set()
             total_conjs = 0
             for tenses in conjugations:
                 for tense in tenses:
-                    conjugations_exp.add(tense[0].replace('-', word))
+                    conjugations_exp.add(tense.replace('-', word))
                     total_conjs += 1
             if len(conjugations) == 3 and total_conjs == 3:
                 wl = len(word)
                 abrev_conjs = set()
                 for tense in conjugations:
-                    if len(tense[0][0]) <= wl or tense[0][0][:wl] != word:
+                    if len(tense[0]) <= wl or tense[0][:wl] != word:
                         break
-                    abrev_conjs.add(tense[0][0][wl:])
+                    abrev_conjs.add(tense[0][wl:])
                 if abrev_conjs == {'ED', 'ING', 'S'} or abrev_conjs == {'ED', 'ING', 'ES'}:
                     for tense in conjugations:
-                        tense[0][0] = '-' + tense[0][0][wl:]
+                        tense[0] = '-' + tense[0][wl:]
 
         entry = {
             'root': root_word,
+            'loo': loo,
             'def': def_text,
             'alts': alt_spellings,
             'pos': pos,
@@ -237,12 +241,11 @@ def dfs(adj_list, node_key, current_group):
     else:
         current_group['defs'].append(node_val['def'])
         current_group['words'].append(node_val['root'])
+        loo = node_val.get('loo')
+        if loo and loo not in SPECIAL_LOOS:
+            current_group['loos'].append(loo)
     for neighbor in node_val['neighbors']:
         dfs(adj_list, neighbor, current_group)
-
-def has_language_of_origin(root_def: str) -> bool:
-    match = re.match(r"^\(.*?\)", root_def.strip())
-    return match is not None
 
 def validate(input_lexicon):
     parsed_tsv, adj_list, start_reserved_nodes, word_def_dict, errors = parse_tsv(input_lexicon)
@@ -264,7 +267,7 @@ def validate(input_lexicon):
 
     completed_groups = {}
     for node_key in adj_list:
-        current_group = {'defs': [], 'words': []}
+        current_group = {'defs': [], 'words': [], 'loos': []}
         dfs(adj_list, node_key, current_group)
         if len(current_group['words']) == 0:
             continue
@@ -272,16 +275,22 @@ def validate(input_lexicon):
         for root_def in current_group['defs']:
             if root_def not in def_counts:
                 def_counts[root_def] = 0
-            has_loo = 0
-            if has_language_of_origin(root_def):
-                has_loo = 1
-            def_counts[root_def] += 1000000 * has_loo + 1000 + len(root_def)
+            def_counts[root_def] += len(root_def)
+        loo_counts = {}
+        for loo in current_group['loos']:
+            if loo not in loo_counts:
+                loo_counts[loo] = 0
+            loo_counts += 1
         plurality_def = max(def_counts, key=def_counts.get)
+        plurality_loo = None
+        if len(loo_counts) > 0:
+            plurality_loo = max(loo_counts, key=loo_counts.get)
         sorted_alt_spellings = sorted(current_group['words'])
         _, pos = decompose_key(node_key)
         for salt in sorted_alt_spellings:
             completed_groups[create_key(salt, pos)] = {
                 'pdef': plurality_def,
+                'ploo': plurality_loo,
                 'alts': sorted_alt_spellings,
             }
 
@@ -294,8 +303,11 @@ def validate(input_lexicon):
             if adj_list_key in completed_groups and adj_list_key not in reserved_nodes:
                 completed_alts = completed_groups[adj_list_key]['alts']
                 plurality_def = completed_groups[adj_list_key]['pdef']
+                plurality_loo = completed_groups[adj_list_key]['ploo']
                 entry['alts'] = [x for x in completed_alts if x != root]
                 entry['def'] = plurality_def
+                if plurality_loo and entry['loo'] not in SPECIAL_LOOS:
+                    entry['loo'] = plurality_loo
 
     return parsed_tsv, reserved_words, word_def_dict
 
@@ -303,6 +315,7 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
     output_file = "out.tsv"
     new_defs_log = "New Definitions:\n"
     total = 0
+    autosuggestions = []
     with open(output_file, 'w', newline='', encoding='utf-8') as tsv_out:
         writer = csv.writer(tsv_out, delimiter='\t')
 
@@ -315,6 +328,9 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
                 if entry['root'] and entry['root'] != word:
                     definition_str += f"{entry['root']}, "
 
+                if entry['loo']:
+                    definition_str += f"({entry['loo']}) "
+
                 definition_str += entry['def']
 
                 if entry['alts']:
@@ -324,15 +340,7 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
                 if entry['conjs']:
                     tense_strs = []
                     for tense_conjs in entry['conjs']:
-                        conj_forms = []
-                        current_loo = None
-                        for conj, loo in tense_conjs:
-                            if loo:
-                                current_loo = loo
-                            conj_forms.append(conj)
-                        tense_str = " or ".join(conj_forms)
-                        if current_loo:
-                            tense_str += f" {current_loo}"
+                        tense_str = " or ".join(tense_conjs)
                         tense_strs.append(tense_str)
                     pos_str += f" {', '.join(tense_strs)}"
                 pos_str += "]"
@@ -351,6 +359,7 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
             if old_def == new_def:
                 new_def_empty_if_same = ""
             else:
+                autosuggestions.append([word, new_def])
                 if tags != "":
                     tags += ", "
                 tags += "Autosuggestion"
@@ -361,6 +370,9 @@ def create_sheet(parsed_tsv, reserved_words, word_def_dict):
             writer.writerow(row_to_write)
     print(new_defs_log)
     print("Total: ", total)
+    with open("autosuggestions.tsv", "w", newline='', encoding='utf-8') as autosugg_out:
+        writer = csv.writer(autosugg_out, delimiter='\t')
+        writer.writerows(autosuggestions)
 
 def retrieve_latest_edition():
     response = requests.get(TSV_URL)

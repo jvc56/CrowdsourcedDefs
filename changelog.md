@@ -7,10 +7,9 @@
 
 ## Edition 2 (2025-06-09)
 
-
 - Identify malformed and expurgated definitions, misspelled words, missing conjugations, and missing alternative spellings
 - Write script to tag (at least) 20,996 definitions that may need to be updated
-- - Create [2nd Edition CSW24 Crowdsourced Definitions Contributor’s Guide](https://docs.google.com/document/d/1ZPDaUxzdBAhBfuN1Hg8OK1_tw5pbt020p4X4Stjww80/edit?usp=sharing)
+- Create [2nd Edition CSW24 Crowdsourced Definitions Contributor’s Guide](https://docs.google.com/document/d/1ZPDaUxzdBAhBfuN1Hg8OK1_tw5pbt020p4X4Stjww80/edit?usp=sharing)
 - Create [2nd Edition CSW24 Crowdsourced Definitions](https://docs.google.com/spreadsheets/d/1Msy6NKnhxCoBF23IwlfemSCZpgacJND4sWTQpvi7LZ4/edit?usp=sharing) spreadsheet with the tags:
   - Autosuggestion
     - Collapse conjugations if verb inflections are just appended to root word. For a missing conjugation that cannot be collapsed, spell out all conjugations
@@ -39,6 +38,12 @@
     - all unverified words
     - all unverified words for each tag
 - Start maintaining a changelog
+- Create Errors sheet with remaining validation issues
+- Create Autosug sheet with new autosuggested definitions
+- Create .db file for the 2nd edition
+- Update README.md with Zyzzyva mobile app instructions
+- Fix README.md instructions for python CLI script
+- Update add_defs_app.py to default to .tsv files
 
 
 ## Edition 1.1 (2025-02-09)

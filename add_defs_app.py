@@ -62,7 +62,7 @@ def update_definitions(tsv_file, db_file, output_text):
             conn.close()
 
 def browse_tsv_file():
-    tsv_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("TSV Files", "*.tsv")])
+    tsv_path = filedialog.askopenfilename(filetypes=[("TSV Files", "*.tsv")])
     tsv_entry.delete(0, tk.END)
     tsv_entry.insert(0, tsv_path)
 

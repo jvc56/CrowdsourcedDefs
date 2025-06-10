@@ -5,6 +5,10 @@
 - Verify alternate spellings
 
 
+## 2025-06-10
+- Create separate tsv file for ULU where definitions are >255 characters
+- Create CSW24.csv for [WatchGCG](https://github.com/jvc56/WatchGCG) repo
+
 ## Edition 2 (2025-06-09)
 
 - Identify malformed and expurgated definitions, misspelled words, missing conjugations, and missing alternative spellings

@@ -4,10 +4,14 @@
 - Verify Autosuggestion tags
 - Verify alternate spellings
 
+## 2025-06-18
+- Update installation instructions in README.md
 
 ## 2025-06-10
 - Create separate tsv file for ULU where definitions are >255 characters
 - Create CSW24.csv for [WatchGCG](https://github.com/jvc56/WatchGCG) repo
+- Create New Autosuggestions filter view
+- Create New Autosuggestion tag in Definitions sheet
 
 ## Edition 2 (2025-06-09)
 

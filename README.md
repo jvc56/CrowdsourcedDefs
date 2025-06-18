@@ -35,8 +35,7 @@ You can directly update your Zyzzyva by overwriting the local lexicon file with 
       3. Copy and paste the new CSW24.db file into the lexicons folder.
          
   5. <b> Restart Zyzzyva. </b>
-      1. Close Zyzzyva if it was open and reopen it.
-      2. Wait for your Zyzzyva to rebuild its CSW24 database.
+      1. Close Zyzzyva if it was open and reopen it. (<b>NOTE:</b> Do <b>not</b> rebuild the database as Zyzzyva will overwrite the Crowdsourced Definitions with the old definitions)
       3. Verify that the crowdsourced definitions are being used by searching for a word (e.g. GUAC).
 
 ### <u>Zyzzyva Mobile</u>
